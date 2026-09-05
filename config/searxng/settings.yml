@@ -1,5 +1,5 @@
-# Minimal SearXNG config for programmatic use.
-# The JSON format is what app/search/searxng.py talks to.
+# Minimal SearXNG config for programmatic discovery.
+# The application explicitly targets Bing using !bing query syntax.
 use_default_settings: true
 
 server:
@@ -15,14 +15,16 @@ search:
     - html
     - json
 
+# Keep only Bing enabled in the bundled instance. Additional providers can
+# still be used through the application's pluggable search-provider layer.
 engines:
   - name: google
-    disabled: false
+    disabled: true
   - name: duckduckgo
-    disabled: false
+    disabled: true
   - name: bing
     disabled: false
   - name: brave
-    disabled: false
+    disabled: true
   - name: mojeek
-    disabled: false
+    disabled: true
