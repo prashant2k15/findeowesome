@@ -22,24 +22,25 @@ class SearxngProvider(SearchProvider):
             follow_redirects=True,
         )
 
-    def _engines(self) -> str | None:
-        engines = getattr(settings, "searxng_engines", "bing")
-        values = [e.strip() for e in engines.split(",") if e.strip()]
-        return ",".join(values) or None
+    def _query(self, query: str) -> str:
+        """Select configured SearXNG engines using its documented bang syntax."""
+        raw = getattr(settings, "searxng_engines", "bing")
+        engines = [e.strip() for e in raw.split(",") if e.strip()]
+        if not engines:
+            return query
+        selectors = " ".join(f"!{engine}" for engine in engines)
+        return f"{selectors} {query}".strip()
 
     def search(self, query: str, pages: int = 1) -> list[SearchResult]:
         out: list[SearchResult] = []
-        engines = self._engines()
         for page in range(1, max(1, pages) + 1):
             params = {
-                "q": query,
+                "q": self._query(query),
                 "format": "json",
                 "pageno": page,
                 "language": getattr(settings, "searxng_language", "en"),
                 "safesearch": getattr(settings, "searxng_safesearch", 0),
             }
-            if engines:
-                params["engines"] = engines
             try:
                 r = self.client.get(f"{self.base_url}/search", params=params)
                 r.raise_for_status()
