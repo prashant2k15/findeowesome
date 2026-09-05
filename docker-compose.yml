@@ -1,0 +1,84 @@
+name: binglinkfinder
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-blf}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-blf_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-blf}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-blf}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-change_me_please}
+    volumes:
+      - ./config/searxng:/etc/searxng:rw
+    expose:
+      - "8080"
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: python -m app.worker
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      searxng:
+        condition: service_started
+    volumes:
+      - ./exports:/app/exports
+      - ./imports:/app/imports
+      - ./config:/app/config:ro
+
+  api:
+    build: .
+    restart: unless-stopped
+    command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --proxy-headers
+    env_file: .env
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./exports:/app/exports
+      - ./config:/app/config:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-blf_change_me}
+    volumes:
+      - ./backups:/backups
+    entrypoint: >
+      sh -c 'while true; do
+        pg_dump -h db -U ${POSTGRES_USER:-blf} -d ${POSTGRES_DB:-blf} |
+          gzip > /backups/blf-$$(date +%Y%m%d-%H%M).sql.gz;
+        ls -1t /backups/blf-*.sql.gz | tail -n +15 | xargs -r rm --;
+        sleep 86400;
+      done'
+
+volumes:
+  pgdata:

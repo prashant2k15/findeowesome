@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BingLinkFinder</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#171a21; --line:#242833; --text:#e6e8ee;
+    --muted:#8b93a7; --accent:#4ea1ff; --ok:#3ecf8e; --bad:#ff5f6d; --warn:#ffb020;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  header { padding:20px 24px; border-bottom:1px solid var(--line);
+           display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  h1 { font-size:18px; margin:0; letter-spacing:.3px; }
+  h2 { font-size:14px; margin:0 0 12px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
+  main { padding:24px; max-width:1400px; margin:0 auto; }
+  .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); margin-bottom:24px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .card .n { font-size:26px; font-weight:600; }
+  .card .l { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+  .cols { display:grid; gap:16px; grid-template-columns:1fr 1fr; }
+  @media (max-width:900px){ .cols { grid-template-columns:1fr; } }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  a { color:var(--accent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px;
+          background:#20242e; color:var(--muted); }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; }
+  button { background:#20242e; color:var(--text); border:1px solid var(--line);
+           border-radius:6px; padding:7px 12px; cursor:pointer; font-size:12px; }
+  button:hover { border-color:var(--accent); color:var(--accent); }
+  .scroll { max-height:420px; overflow:auto; }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>BingLinkFinder <span class="pill">master backlink database</span></h1>
+  <div class="actions">
+    {% for j in jobs %}<button onclick="runJob('{{ j }}')">{{ j }}</button>{% endfor %}
+    <a href="/api/export/all_live.csv{% if key %}?key={{ key }}{% endif %}"><button>download all_live.csv</button></a>
+  </div>
+</header>
+
+<main>
+  <div class="grid">
+    <div class="card"><div class="n">{{ "{:,}".format(stats.total) }}</div><div class="l">total urls</div></div>
+    <div class="card"><div class="n ok">{{ "{:,}".format(stats.live) }}</div><div class="l">live</div></div>
+    <div class="card"><div class="n">{{ "{:,}".format(stats.new_today) }}</div><div class="l">new (24h)</div></div>
+    <div class="card"><div class="n warn">{{ "{:,}".format(stats.pending) }}</div><div class="l">pending check</div></div>
+    <div class="card"><div class="n">{{ "{:,}".format(stats.domains) }}</div><div class="l">domains</div></div>
+    <div class="card"><div class="n bad">{{ "{:,}".format(stats.dead) }}</div><div class="l">dead</div></div>
+  </div>
+
+  <div class="cols">
+    <section class="card">
+      <h2>Live by type</h2>
+      <table>
+        <tr><th>type</th><th class="num">count</th><th>export</th></tr>
+        {% for kind, count in stats.by_kind.items()|sort(attribute='1', reverse=true) %}
+        <tr>
+          <td>{{ kind }}</td>
+          <td class="num">{{ "{:,}".format(count) }}</td>
+          <td><a href="/api/export/{{ kind }}.csv{% if key %}?key={{ key }}{% endif %}">csv</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="muted">nothing classified yet - run the check job</td></tr>
+        {% endfor %}
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>Worker health</h2>
+      <div class="scroll">
+      <table>
+        <tr><th>job</th><th>started (utc)</th><th>result</th><th class="num">seen</th><th class="num">new</th></tr>
+        {% for r in runs %}
+        <tr>
+          <td>{{ r.job }}</td>
+          <td class="muted">{{ r.started_at.strftime('%m-%d %H:%M') }}</td>
+          <td>
+            {% if r.ok is none %}<span class="warn">running</span>
+            {% elif r.ok %}<span class="ok">ok</span>
+            {% else %}<span class="bad">failed</span>{% endif %}
+          </td>
+          <td class="num">{{ r.processed }}</td>
+          <td class="num">{{ r.created }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted">no jobs have run yet</td></tr>
+        {% endfor %}
+      </table>
+      </div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:16px">
+    <h2>Top opportunities</h2>
+    <div class="scroll">
+    <table>
+      <tr><th class="num">score</th><th>type</th><th>url</th><th>submission page</th><th>source</th></tr>
+      {% for o in top %}
+      <tr>
+        <td class="num">{{ "%.2f"|format(o.score) }}</td>
+        <td><span class="pill">{{ o.kind }}</span></td>
+        <td><a href="{{ o.url }}" target="_blank" rel="noopener nofollow">{{ o.url[:80] }}</a>
+            {% if o.title %}<div class="muted">{{ o.title[:90] }}</div>{% endif %}</td>
+        <td>{% if o.submission_url %}<a href="{{ o.submission_url }}" target="_blank" rel="noopener nofollow">open</a>{% endif %}</td>
+        <td class="muted">{{ o.source }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">database is empty - run github_harvest and footprints</td></tr>
+      {% endfor %}
+    </table>
+    </div>
+  </section>
+</main>
+
+<script>
+const KEY = {{ key|tojson }};
+async function runJob(name) {
+  const url = '/api/run/' + name + (KEY ? '?key=' + encodeURIComponent(KEY) : '');
+  const r = await fetch(url, { method: 'POST' });
+  alert(r.ok ? name + ' queued' : name + ' failed: ' + r.status);
+}
+setTimeout(() => location.reload(), 60000);
+</script>
+</body>
+</html>

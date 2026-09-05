@@ -1,0 +1,109 @@
+{
+  "_comment": "Search footprints. Each template is expanded across `modifiers` ({mod}) and stored as one rotating query in the footprints table. Add/remove freely, then run `blf sync-config` (the worker also syncs on boot).",
+  "groups": [
+    {
+      "kind": "directory",
+      "modifiers": [
+        "business", "local business", "small business", "startup", "b2b", "saas",
+        "technology", "health", "fitness", "travel", "finance", "insurance",
+        "education", "real estate", "automotive", "legal", "food", "fashion",
+        "home services", "marketing", "ecommerce", "wedding", "pet", "photography"
+      ],
+      "templates": [
+        "\"submit your site\" {mod} directory",
+        "\"submit a site\" {mod} directory",
+        "\"add your business\" {mod} \"free listing\"",
+        "\"add your site\" {mod} directory inurl:submit",
+        "{mod} directory \"submit url\"",
+        "{mod} \"web directory\" \"add site\"",
+        "inurl:submit-site {mod}",
+        "inurl:add-url {mod} directory",
+        "inurl:submit-website {mod}",
+        "{mod} \"list your business\" free"
+      ]
+    },
+    {
+      "kind": "profile",
+      "modifiers": [
+        "seo", "marketing", "technology", "design", "developer", "startup",
+        "health", "travel", "education", "finance", "photography", "writers"
+      ],
+      "templates": [
+        "{mod} community \"create an account\" \"public profile\"",
+        "{mod} forum inurl:register \"profile\"",
+        "\"create your profile\" {mod} site",
+        "inurl:members {mod} \"join now\"",
+        "{mod} network \"sign up\" \"add website\" profile",
+        "inurl:/user/register {mod}"
+      ]
+    },
+    {
+      "kind": "article",
+      "modifiers": [
+        "seo", "marketing", "technology", "business", "health", "travel",
+        "finance", "education", "lifestyle", "software", "ai", "ecommerce"
+      ],
+      "templates": [
+        "{mod} \"write for us\"",
+        "{mod} \"guest post\" \"submit an article\"",
+        "{mod} blog \"become a contributor\"",
+        "{mod} \"submit a guest post\" guidelines",
+        "inurl:write-for-us {mod}",
+        "inurl:guest-post-guidelines {mod}"
+      ]
+    },
+    {
+      "kind": "bookmark",
+      "modifiers": ["", "free", "dofollow", "new", "high da"],
+      "templates": [
+        "{mod} social bookmarking sites list",
+        "{mod} \"social bookmarking\" \"submit story\"",
+        "inurl:bookmark \"submit\" {mod} site",
+        "\"kliqqi\" OR \"pligg\" {mod} submit story"
+      ]
+    },
+    {
+      "kind": "web2",
+      "modifiers": ["", "free", "blogging"],
+      "templates": [
+        "{mod} \"create a free blog\" platform",
+        "{mod} \"start your blog\" \"sign up free\"",
+        "web 2.0 sites list {mod} create blog"
+      ]
+    },
+    {
+      "kind": "forum",
+      "modifiers": [
+        "seo", "marketing", "webmaster", "technology", "business", "travel",
+        "health", "gaming", "photography", "diy"
+      ],
+      "templates": [
+        "{mod} forum \"powered by phpBB\" register",
+        "{mod} forum \"powered by XenForo\" register",
+        "{mod} \"discussion board\" \"new topic\" register",
+        "inurl:forum {mod} \"sign up\""
+      ]
+    },
+    {
+      "kind": "qa",
+      "modifiers": ["seo", "marketing", "technology", "health", "finance", "travel"],
+      "templates": [
+        "{mod} \"ask a question\" community site",
+        "{mod} Q&A site \"post your question\"",
+        "inurl:/questions/ask {mod}"
+      ]
+    },
+    {
+      "kind": "directory",
+      "modifiers": [
+        "india", "usa", "uk", "canada", "australia", "germany", "uae",
+        "singapore", "south africa", "new zealand"
+      ],
+      "templates": [
+        "{mod} business directory \"add your business\"",
+        "{mod} \"free business listing\" submit",
+        "{mod} local directory \"submit your website\""
+      ]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+# Public lists harvested by the github_harvest job.
+#
+# Anything that returns raw text/markdown/CSV works: raw.githubusercontent.com
+# URLs, gists, pastebin raw links, your own hosted lists.
+#
+# `kind` is only a hint - the live checker re-classifies every URL from the
+# actual page. A source that 404s is disabled automatically, so a stale entry
+# here costs one request and then goes quiet.
+#
+# The github_discover job appends more sources automatically by searching
+# GitHub for list repositories; this file is just the hand-curated starting set.
+
+sources:
+  - url: https://raw.githubusercontent.com/topics/backlinks
+    label: placeholder-remove-me
+    kind: unknown
+
+  # --- examples: replace with lists you trust -------------------------------
+  # - url: https://raw.githubusercontent.com/<user>/<repo>/main/README.md
+  #   label: high-da-profile-sites
+  #   kind: profile
+  #
+  # - url: https://raw.githubusercontent.com/<user>/<repo>/main/directories.csv
+  #   label: directory-submission-sites
+  #   kind: directory
+  #
+  # - url: https://gist.githubusercontent.com/<user>/<id>/raw/web2.txt
+  #   label: web2-platforms
+  #   kind: web2

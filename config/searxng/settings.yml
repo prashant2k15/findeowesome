@@ -1,0 +1,28 @@
+# Minimal SearXNG config for programmatic use.
+# The JSON format is what app/search/searxng.py talks to.
+use_default_settings: true
+
+server:
+  secret_key: "change_me_please"
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
+  formats:
+    - html
+    - json
+
+engines:
+  - name: google
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: mojeek
+    disabled: false
