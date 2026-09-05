@@ -68,6 +68,11 @@ class Opportunity(Base):
     signals: Mapped[dict] = mapped_column(JSON, default=dict)
     score: Mapped[float] = mapped_column(Float, default=0.0, index=True)
 
+    # denormalised from domain_metrics so every export and filter stays a
+    # single-table query; refreshed by the metrics job
+    page_rank: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
+    metrics_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     fail_count: Mapped[int] = mapped_column(Integer, default=0)
     check_count: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -133,3 +138,158 @@ class JobRun(Base):
     processed: Mapped[int] = mapped_column(Integer, default=0)
     created: Mapped[int] = mapped_column(Integer, default=0)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# =========================================================================
+# Module: domain quality metrics
+# =========================================================================
+
+class DomainMetrics(Base):
+    """Authority metrics for one root domain, cached and refreshed on a cycle."""
+
+    __tablename__ = "domain_metrics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    root_domain: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+
+    # 0-10 logarithmic authority (Open PageRank) - the free signal
+    page_rank: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
+    # global position, lower is stronger
+    global_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # optional paid enrichment
+    domain_rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    backlinks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    referring_domains: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    organic_traffic: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    spam_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    provider: Mapped[str] = mapped_column(String(32), default="openpagerank")
+    raw: Mapped[dict] = mapped_column(JSON, default=dict)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    error: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+# =========================================================================
+# Module: backlink tracker (links YOU placed)
+# =========================================================================
+
+LINK_PENDING = "pending"          # submitted, not seen live yet
+LINK_LIVE = "live"                # link found on the page
+LINK_MISSING = "missing"          # page loads, link is gone
+LINK_UNREACHABLE = "unreachable"  # page itself failed to load
+
+
+class Backlink(Base):
+    """A link you placed: where it lives, where it points, is it still there."""
+
+    __tablename__ = "backlinks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_url: Mapped[str] = mapped_column(String(2048), index=True)   # page holding the link
+    source_domain: Mapped[str] = mapped_column(String(255), index=True)
+    target_url: Mapped[str] = mapped_column(String(2048), index=True)   # your page
+    target_domain: Mapped[str] = mapped_column(String(255), index=True)
+
+    anchor_expected: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    anchor_found: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    project: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
+    status: Mapped[str] = mapped_column(String(16), default=LINK_PENDING, index=True)
+    is_dofollow: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    rel: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    first_seen_live: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lost_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_checked: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    check_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    opportunity_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("source_url", "target_url", name="uq_backlink_pair"),
+        Index("ix_backlinks_project_status", "project", "status"),
+    )
+
+
+# =========================================================================
+# Module: outreach
+# =========================================================================
+
+PROSPECT_NEW = "new"
+PROSPECT_READY = "ready"          # contact found, message drafted
+PROSPECT_QUEUED = "queued"        # approved, waiting to send
+PROSPECT_CONTACTED = "contacted"
+PROSPECT_REPLIED = "replied"
+PROSPECT_WON = "won"              # link placed
+PROSPECT_LOST = "lost"
+PROSPECT_NO_CONTACT = "no_contact"
+PROSPECT_OPTED_OUT = "opted_out"
+
+
+class Prospect(Base):
+    """A site worth a personal email rather than a form submission."""
+
+    __tablename__ = "prospects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    root_domain: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    url: Mapped[str] = mapped_column(String(2048))
+
+    kind: Mapped[str] = mapped_column(String(32), default=KIND_UNKNOWN)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    emails_all: Mapped[list] = mapped_column(JSON, default=list)
+    contact_page: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    contact_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    site_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    project: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    template: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default=PROSPECT_NEW, index=True)
+
+    page_rank: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
+    score: Mapped[float] = mapped_column(Float, default=0.0, index=True)
+
+    contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_touch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    follow_ups: Mapped[int] = mapped_column(Integer, default=0)
+    replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    opportunity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class OutreachMessage(Base):
+    """Every drafted/sent email - the audit trail and the follow-up chain."""
+
+    __tablename__ = "outreach_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    prospect_id: Mapped[int] = mapped_column(Integer, index=True)
+    sequence: Mapped[int] = mapped_column(Integer, default=0)  # 0 = first mail
+
+    to_email: Mapped[str] = mapped_column(String(255))
+    subject: Mapped[str] = mapped_column(String(512))
+    body: Mapped[str] = mapped_column(Text)
+    template: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    approved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    sent: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Suppression(Base):
+    """Never contact these again: opt-outs, bounces, manual blocks."""
+
+    __tablename__ = "suppressions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    value: Mapped[str] = mapped_column(String(255), unique=True, index=True)  # email or domain
+    reason: Mapped[str] = mapped_column(String(128), default="manual")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

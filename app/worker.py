@@ -37,6 +37,12 @@ JOB_DEFS = [
     ("export", jobs.job_export, lambda s: IntervalTrigger(hours=6)),
     ("cleanup", jobs.job_cleanup, lambda s: CronTrigger(hour=4, minute=30)),
     ("purge", jobs.job_purge, lambda s: CronTrigger(hour=5, minute=0)),
+    ("metrics", jobs.job_metrics, lambda s: IntervalTrigger(hours=6, jitter=300)),
+    ("verify_backlinks", jobs.job_verify_backlinks, lambda s: IntervalTrigger(hours=s.job_tracker_hours, jitter=300)),
+    ("build_prospects", jobs.job_build_prospects, lambda s: IntervalTrigger(hours=12, jitter=600)),
+    ("find_contacts", jobs.job_find_contacts, lambda s: IntervalTrigger(hours=3, jitter=300)),
+    ("draft_outreach", jobs.job_draft_outreach, lambda s: IntervalTrigger(hours=6, jitter=300)),
+    ("send_outreach", jobs.job_send_outreach, lambda s: IntervalTrigger(hours=2, jitter=600)),
     ("report", jobs.job_report, lambda s: CronTrigger(hour=settings.job_report_hour, minute=0)),
 ]
 

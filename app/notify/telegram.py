@@ -46,6 +46,30 @@ def daily_report(stats: dict, jobs: list) -> str:
         for j in jobs[:6]
     ) or "  (no jobs yet)"
 
+    tracker = stats.get("tracker") or {}
+    tracker_block = ""
+    if tracker.get("total"):
+        lost = f"\n  <b>LOST since last check: {tracker['lost']}</b>" if tracker.get("lost") else ""
+        tracker_block = (
+            "\n\n<b>Your backlinks</b>"
+            f"\n  live: <b>{tracker.get('live', 0):,}</b> of {tracker['total']:,}"
+            f"   dofollow: {tracker.get('dofollow', 0):,}"
+            f"\n  missing: {tracker.get('missing', 0):,}"
+            f"{lost}"
+        )
+
+    outreach = stats.get("outreach") or {}
+    outreach_block = ""
+    if outreach.get("total"):
+        outreach_block = (
+            "\n\n<b>Outreach</b>"
+            f"\n  prospects: {outreach['total']:,}"
+            f"   with email: {outreach.get('with_email', 0):,}"
+            f"\n  contacted: {outreach.get('contacted', 0):,}"
+            f"   replied: {outreach.get('replied', 0):,}"
+            f"\n  drafts awaiting approval: <b>{outreach.get('pending_approval', 0):,}</b>"
+        )
+
     return (
         "<b>BingLinkFinder daily report</b>\n"
         f"\nNew URLs (24h): <b>{stats['new_today']:,}</b>"
@@ -55,6 +79,8 @@ def daily_report(stats: dict, jobs: list) -> str:
         f"\nTotal database: <b>{stats['total']:,}</b> URLs across "
         f"{stats['domains']:,} domains"
         f"\n\n<b>Live by type</b>\n{kind_lines}"
+        f"{tracker_block}"
+        f"{outreach_block}"
         f"\n\n<b>Recent jobs</b>\n<pre>{job_lines}</pre>"
     )
 

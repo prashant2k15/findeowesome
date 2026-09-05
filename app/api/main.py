@@ -11,7 +11,7 @@ from sqlalchemy import func, or_, select
 
 from app import jobs
 from app.config import settings
-from app.db.models import Opportunity
+from app.db.models import Backlink, Opportunity, OutreachMessage, Prospect
 from app.db.repo import recent_jobs, stats
 from app.db.session import init_db, session_scope
 
@@ -31,6 +31,12 @@ TRIGGERABLE = {
     "export": jobs.job_export,
     "cleanup": jobs.job_cleanup,
     "purge": jobs.job_purge,
+    "metrics": jobs.job_metrics,
+    "verify_backlinks": jobs.job_verify_backlinks,
+    "build_prospects": jobs.job_build_prospects,
+    "find_contacts": jobs.job_find_contacts,
+    "draft_outreach": jobs.job_draft_outreach,
+    "send_outreach": jobs.job_send_outreach,
     "report": jobs.job_report,
 }
 
@@ -65,8 +71,19 @@ def dashboard(request: Request, _=Depends(require_key)) -> HTMLResponse:
             s.execute(
                 select(Opportunity)
                 .where(Opportunity.status.in_(["live", "redirect"]))
-                .order_by(Opportunity.score.desc(), Opportunity.first_seen.desc())
+                .order_by(
+                    Opportunity.page_rank.desc().nullslast(),
+                    Opportunity.score.desc(),
+                    Opportunity.first_seen.desc(),
+                )
                 .limit(25)
+            ).scalars()
+        )
+        links = list(
+            s.execute(
+                select(Backlink)
+                .order_by(Backlink.lost_at.desc().nullslast(), Backlink.last_checked.desc().nullsfirst())
+                .limit(20)
             ).scalars()
         )
     return templates.TemplateResponse(
@@ -76,6 +93,7 @@ def dashboard(request: Request, _=Depends(require_key)) -> HTMLResponse:
             "stats": data,
             "runs": runs,
             "top": top,
+            "links": links,
             "jobs": sorted(TRIGGERABLE),
             "key": request.query_params.get("key", ""),
         },

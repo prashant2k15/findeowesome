@@ -57,6 +57,18 @@
     <div class="card"><div class="n warn">{{ "{:,}".format(stats.pending) }}</div><div class="l">pending check</div></div>
     <div class="card"><div class="n">{{ "{:,}".format(stats.domains) }}</div><div class="l">domains</div></div>
     <div class="card"><div class="n bad">{{ "{:,}".format(stats.dead) }}</div><div class="l">dead</div></div>
+    {% if stats.tracker.total %}
+    <div class="card"><div class="n ok">{{ "{:,}".format(stats.tracker.live) }}</div>
+      <div class="l">my links live</div></div>
+    <div class="card"><div class="n {{ 'bad' if stats.tracker.lost else '' }}">{{ "{:,}".format(stats.tracker.lost) }}</div>
+      <div class="l">links lost</div></div>
+    {% endif %}
+    {% if stats.outreach.total %}
+    <div class="card"><div class="n">{{ "{:,}".format(stats.outreach.contacted) }}</div>
+      <div class="l">contacted</div></div>
+    <div class="card"><div class="n warn">{{ "{:,}".format(stats.outreach.pending_approval) }}</div>
+      <div class="l">drafts to approve</div></div>
+    {% endif %}
   </div>
 
   <div class="cols">
@@ -105,10 +117,11 @@
     <h2>Top opportunities</h2>
     <div class="scroll">
     <table>
-      <tr><th class="num">score</th><th>type</th><th>url</th><th>submission page</th><th>source</th></tr>
+      <tr><th class="num">score</th><th class="num">PR</th><th>type</th><th>url</th><th>submission page</th><th>source</th></tr>
       {% for o in top %}
       <tr>
         <td class="num">{{ "%.2f"|format(o.score) }}</td>
+        <td class="num">{{ "%.1f"|format(o.page_rank) if o.page_rank is not none else "-" }}</td>
         <td><span class="pill">{{ o.kind }}</span></td>
         <td><a href="{{ o.url }}" target="_blank" rel="noopener nofollow">{{ o.url[:80] }}</a>
             {% if o.title %}<div class="muted">{{ o.title[:90] }}</div>{% endif %}</td>
@@ -116,11 +129,64 @@
         <td class="muted">{{ o.source }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="5" class="muted">database is empty - run github_harvest and footprints</td></tr>
+      <tr><td colspan="6" class="muted">database is empty - run github_harvest and footprints</td></tr>
       {% endfor %}
     </table>
     </div>
   </section>
+  <div class="cols" style="margin-top:16px">
+    <section class="card">
+      <h2>My backlinks</h2>
+      {% if links %}
+      <div class="scroll">
+      <table>
+        <tr><th>status</th><th>follow</th><th>source page</th><th>target</th><th>checked</th></tr>
+        {% for b in links %}
+        <tr>
+          <td>
+            {% if b.status == 'live' %}<span class="ok">live</span>
+            {% elif b.status == 'missing' %}<span class="bad">missing</span>
+            {% else %}<span class="warn">{{ b.status }}</span>{% endif %}
+          </td>
+          <td class="muted">{% if b.is_dofollow is none %}-{% elif b.is_dofollow %}dofollow{% else %}nofollow{% endif %}</td>
+          <td><a href="{{ b.source_url }}" target="_blank" rel="noopener nofollow">{{ b.source_url[:52] }}</a></td>
+          <td class="muted">{{ b.target_url[:36] }}</td>
+          <td class="muted">{{ b.last_checked.strftime('%m-%d') if b.last_checked else 'never' }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      </div>
+      <p class="muted">Add links with <code>blf link add &lt;source&gt; &lt;target&gt;</code> or
+         <a href="/api/export/tracked_backlinks.csv{% if key %}?key={{ key }}{% endif %}">download CSV</a>.</p>
+      {% else %}
+      <p class="muted">No links tracked yet. Register a placed link with
+        <code>blf link add &lt;page-with-your-link&gt; &lt;your-url&gt;</code> and it gets
+        re-verified on every cycle.</p>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2>Outreach pipeline</h2>
+      {% if stats.outreach.total %}
+      <table>
+        {% for status, count in stats.outreach.by_status.items()|sort(attribute='1', reverse=true) %}
+        <tr><td>{{ status }}</td><td class="num">{{ "{:,}".format(count) }}</td></tr>
+        {% endfor %}
+        <tr><td class="muted">drafts awaiting approval</td>
+            <td class="num">{{ stats.outreach.pending_approval }}</td></tr>
+        <tr><td class="muted">messages sent</td><td class="num">{{ stats.outreach.sent }}</td></tr>
+      </table>
+      <p class="muted">Review and approve drafts from the CLI:
+        <code>blf outreach review --show-body</code>, then
+        <code>blf outreach approve &lt;id&gt;</code>.
+        <a href="/api/export/prospects.csv{% if key %}?key={{ key }}{% endif %}">prospects.csv</a></p>
+      {% else %}
+      <p class="muted">No prospects yet. Run <code>build_prospects</code>, then
+        <code>find_contacts</code>. Nothing is ever emailed without
+        <code>OUTREACH_ENABLED=true</code> and an approved draft.</p>
+      {% endif %}
+    </section>
+  </div>
 </main>
 
 <script>

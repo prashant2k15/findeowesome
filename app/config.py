@@ -26,6 +26,37 @@ class Settings(BaseSettings):
     # github
     github_token: str = ""
 
+    # domain authority metrics
+    metrics_provider: str = "openpagerank"   # openpagerank | dataforseo | none
+    openpagerank_api_key: str = ""
+    dataforseo_login: str = ""
+    dataforseo_password: str = ""
+    metrics_refresh_days: int = 90
+    metrics_batch_domains: int = 500
+    # opportunities below this authority are excluded from exports (0 = keep all)
+    min_page_rank: float = 0.0
+
+    # backlink tracker
+    job_tracker_hours: int = 12
+    tracker_batch_size: int = 200
+    tracker_recheck_days: int = 7
+
+    # outreach
+    outreach_enabled: bool = False           # master switch for actually sending
+    outreach_require_approval: bool = True   # drafts wait for approval by default
+    outreach_daily_limit: int = 25
+    outreach_follow_up_days: int = 5
+    outreach_max_follow_ups: int = 2
+    outreach_from_name: str = ""
+    outreach_from_email: str = ""
+    outreach_reply_to: str = ""
+    outreach_min_page_rank: float = 2.0
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_starttls: bool = True
+
     # crawler
     user_agent: str = "BingLinkFinder/1.0"
     request_timeout: int = 20

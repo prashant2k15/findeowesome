@@ -7,14 +7,21 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    LINK_LIVE,
+    LINK_MISSING,
+    PROSPECT_CONTACTED,
+    PROSPECT_REPLIED,
     STATUS_BLOCKED,
     STATUS_DEAD,
     STATUS_LIVE,
     STATUS_NEW,
     STATUS_REDIRECT,
+    Backlink,
     Footprint,
     JobRun,
     Opportunity,
+    OutreachMessage,
+    Prospect,
     SeedSource,
     utcnow,
 )
@@ -138,6 +145,8 @@ def stats(session: Session) -> dict:
     return {
         "total": total,
         "domains": domains,
+        "tracker": tracker_stats(session),
+        "outreach": outreach_stats(session),
         "new_today": new_today,
         "live": by_status.get(STATUS_LIVE, 0) + by_status.get(STATUS_REDIRECT, 0),
         "dead": by_status.get(STATUS_DEAD, 0),
@@ -226,3 +235,63 @@ def next_footprints(session: Session, limit: int) -> list[Footprint]:
 def _chunks(items: list, size: int):
     for i in range(0, len(items), size):
         yield items[i : i + size]
+
+
+def tracker_stats(session: Session) -> dict:
+    """Health of the links you placed."""
+    total = session.scalar(select(func.count(Backlink.id))) or 0
+    if not total:
+        return {"total": 0}
+    by_status = dict(
+        session.execute(
+            select(Backlink.status, func.count(Backlink.id)).group_by(Backlink.status)
+        ).all()
+    )
+    return {
+        "total": total,
+        "live": by_status.get(LINK_LIVE, 0),
+        "missing": by_status.get(LINK_MISSING, 0),
+        "lost": session.scalar(
+            select(func.count(Backlink.id)).where(Backlink.lost_at.isnot(None))
+        )
+        or 0,
+        "dofollow": session.scalar(
+            select(func.count(Backlink.id)).where(
+                Backlink.status == LINK_LIVE, Backlink.is_dofollow.is_(True)
+            )
+        )
+        or 0,
+        "by_status": by_status,
+    }
+
+
+def outreach_stats(session: Session) -> dict:
+    """Where every prospect currently sits in the pipeline."""
+    total = session.scalar(select(func.count(Prospect.id))) or 0
+    if not total:
+        return {"total": 0}
+    by_status = dict(
+        session.execute(
+            select(Prospect.status, func.count(Prospect.id)).group_by(Prospect.status)
+        ).all()
+    )
+    return {
+        "total": total,
+        "contacted": by_status.get(PROSPECT_CONTACTED, 0),
+        "replied": by_status.get(PROSPECT_REPLIED, 0),
+        "with_email": session.scalar(
+            select(func.count(Prospect.id)).where(Prospect.email.isnot(None))
+        )
+        or 0,
+        "pending_approval": session.scalar(
+            select(func.count(OutreachMessage.id)).where(
+                OutreachMessage.sent.is_(False), OutreachMessage.approved.is_(False)
+            )
+        )
+        or 0,
+        "sent": session.scalar(
+            select(func.count(OutreachMessage.id)).where(OutreachMessage.sent.is_(True))
+        )
+        or 0,
+        "by_status": by_status,
+    }

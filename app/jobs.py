@@ -29,7 +29,16 @@ from app.db.repo import (
     sync_seed_sources,
 )
 from app.db.session import session_scope
-from app.exporters.csv_exporter import export_all
+from app.exporters.csv_exporter import export_all, export_backlinks, export_prospects
+from app.metrics.enrich import enrich as metrics_enrich
+from app.outreach.campaign import (
+    build_prospects,
+    draft_messages,
+    find_contacts,
+    schedule_follow_ups,
+    send_queue,
+)
+from app.trackers.backlink_tracker import verify_batch
 from app.notify import telegram
 from app.processors.url_cleaner import is_spam_url, normalize_url
 
@@ -132,6 +141,8 @@ def job_check(session) -> tuple[int, int, str]:
 
 def job_export(session) -> tuple[int, int, str]:
     written = export_all(session)
+    written["tracked_backlinks"] = export_backlinks(session)
+    written["prospects"] = export_prospects(session)
     total = written.get("all_live", 0)
     return total, 0, ", ".join(f"{k}={v}" for k, v in sorted(written.items()))
 
@@ -174,3 +185,73 @@ def job_purge_junk(session) -> tuple[int, int]:
 def job_purge(session) -> tuple[int, int, str]:
     scanned, removed = job_purge_junk(session)
     return scanned, removed, f"{removed} junk URLs removed of {scanned} scanned"
+
+
+# =========================================================================
+# Module: domain quality metrics
+# =========================================================================
+
+
+def job_metrics(session) -> tuple[int, int, str]:
+    requested, stored = metrics_enrich(session)
+    return requested, stored, f"{stored} domains enriched of {requested} requested"
+
+
+# =========================================================================
+# Module: backlink tracker
+# =========================================================================
+
+
+def job_verify_backlinks(session) -> tuple[int, int, str]:
+    summary = verify_batch(session)
+    lost = summary.get("lost_links") or []
+    if lost:
+        lines = "\n".join(f"  {l['source']} -> {l['target']}" for l in lost[:15])
+        telegram.send(
+            f"<b>Backlinks lost: {len(lost)}</b>\n<pre>{lines}</pre>"
+            "\nThese pages still load but your link is gone."
+        )
+    return (
+        summary["checked"],
+        summary["live"],
+        f"{summary['checked']} checked / {summary['live']} live / "
+        f"{summary['missing']} missing / {summary['unreachable']} unreachable"
+        + (f" / {summary['lost']} NEWLY LOST" if summary.get("lost") else ""),
+    )
+
+
+# =========================================================================
+# Module: outreach
+# =========================================================================
+
+
+def job_build_prospects(session) -> tuple[int, int, str]:
+    scanned, created = build_prospects(session, limit=100)
+    return scanned, created, f"{created} new prospects from {scanned} opportunities"
+
+
+def job_find_contacts(session) -> tuple[int, int, str]:
+    checked, found = find_contacts(session, limit=40)
+    return checked, found, f"{found} contacts found of {checked} prospects"
+
+
+def job_draft_outreach(session) -> tuple[int, int, str]:
+    considered, drafted = draft_messages(session, limit=50)
+    follow_considered, follow_drafted = schedule_follow_ups(session, limit=50)
+    return (
+        considered + follow_considered,
+        drafted + follow_drafted,
+        f"{drafted} first drafts, {follow_drafted} follow-ups",
+    )
+
+
+def job_send_outreach(session) -> tuple[int, int, str]:
+    if not settings.outreach_enabled:
+        return 0, 0, "outreach disabled (OUTREACH_ENABLED=false)"
+    summary = send_queue(session)
+    return (
+        summary["eligible"],
+        summary["sent"],
+        f"{summary['sent']} sent, {summary['dry_run']} dry-run, "
+        f"{summary['blocked']} blocked, {summary['failed']} failed",
+    )

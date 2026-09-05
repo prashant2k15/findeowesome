@@ -1,0 +1,137 @@
+# Outreach templates and the variables they are rendered with.
+#
+# Placeholders use {curly_braces}. Anything in `defaults` (or in a project
+# override) is available to every template, alongside the per-prospect values
+# the engine fills in automatically:
+#
+#   {site_name}   title of the prospect site      {domain}      its root domain
+#   {url}         the page that was discovered    {contact_page} contact/write-for-us page
+#   {page_rank}   Open PageRank 0-10
+#
+# Edit freely - `blf outreach sync` reloads this file.
+
+defaults:
+  my_name: "Your Name"
+  my_site: "yoursite.com"
+  my_url: "https://yoursite.com"
+  my_role: "editor"
+  topic: "SEO and digital marketing"
+  unsubscribe: "If you'd rather not hear from me again, just reply STOP and I'll remove you."
+
+# Per-project overrides; use `--project` on the CLI to select one.
+projects:
+  example:
+    my_site: "example.com"
+    my_url: "https://example.com"
+    topic: "AI productivity tools"
+
+templates:
+  guest_post:
+    subject: "Guest article idea for {site_name}"
+    body: |
+      Hi{name_suffix},
+
+      I've been reading {domain} - the writing on {topic} is the reason I keep
+      coming back, so I wanted to ask before pitching anything generic.
+
+      I write at {my_site} and I'd like to contribute one original article to
+      {site_name}. Two angles I could cover properly, with data rather than
+      opinion:
+
+        1. [angle one - replace before sending]
+        2. [angle two - replace before sending]
+
+      Original, unpublished, and yours to edit. If either fits, I'll send a
+      full draft within a week. If neither does, tell me what your readers
+      actually want and I'll write that instead.
+
+      Thanks for the time,
+      {my_name}
+      {my_url}
+
+      {unsubscribe}
+
+  resource_page:
+    subject: "A suggestion for your resources page on {domain}"
+    body: |
+      Hi{name_suffix},
+
+      Your resources page on {domain} is one of the more careful lists I've
+      found on {topic} - most are link dumps, yours isn't.
+
+      I built something that might earn a place on it: {my_url}. It covers
+      [what makes it genuinely useful - replace before sending], and it's free
+      with no signup.
+
+      Entirely your call - if it isn't a fit, no reply needed and I won't
+      chase it.
+
+      Best,
+      {my_name}
+      {my_site}
+
+      {unsubscribe}
+
+  broken_link:
+    subject: "Two broken links on {domain}"
+    body: |
+      Hi{name_suffix},
+
+      Small thing while reading {url}: a couple of the outbound links are dead
+      now -
+
+        - [broken link 1 - replace before sending]
+        - [broken link 2 - replace before sending]
+
+      Worth fixing whatever you replace them with. If it helps, I've written
+      something covering the same ground at {my_url}, but the broken links are
+      the actual reason for the email.
+
+      Cheers,
+      {my_name}
+
+      {unsubscribe}
+
+  listing:
+    subject: "Submission for {site_name}"
+    body: |
+      Hi{name_suffix},
+
+      I'd like to add {my_site} to {site_name}. Details for the listing:
+
+        Site:        {my_url}
+        Category:    [category - replace before sending]
+        Description: [40-60 words - replace before sending]
+
+      If you have a form you'd rather I use, point me at it and I'll fill it in
+      properly.
+
+      Thanks,
+      {my_name}
+
+      {unsubscribe}
+
+# Follow-ups are sent on the same thread. Keep them short; two is the maximum.
+follow_ups:
+  - subject: "Re: {original_subject}"
+    body: |
+      Hi{name_suffix},
+
+      Just floating this back to the top of your inbox in case it got buried.
+      Happy to hear a no - it saves us both time.
+
+      {my_name}
+
+      {unsubscribe}
+
+  - subject: "Re: {original_subject}"
+    body: |
+      Hi{name_suffix},
+
+      Last note from me on this - I'll assume it isn't a fit and leave you
+      alone. If that changes, my door is open.
+
+      All the best,
+      {my_name}
+
+      {unsubscribe}

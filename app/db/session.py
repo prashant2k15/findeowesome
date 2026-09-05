@@ -8,6 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
+from app.db import migrate
 from app.db.models import Base
 
 _connect_args = {}
@@ -27,6 +28,7 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 def init_db() -> None:
     """Create tables if missing. Safe to call on every container start."""
     Base.metadata.create_all(engine)
+    migrate.apply(engine)
     if settings.database_url.startswith("sqlite"):
         with engine.begin() as conn:
             from sqlalchemy import text

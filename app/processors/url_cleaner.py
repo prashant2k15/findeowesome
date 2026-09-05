@@ -102,8 +102,16 @@ def root_domain(host: str) -> str:
     return f"{ext.domain}.{ext.suffix}".lower()
 
 
-def normalize_url(raw: str) -> str | None:
-    """Return a canonical URL, or None if it should never enter the database."""
+def canonical_url(raw: str) -> str | None:
+    """Structural normalisation only: one URL string, one canonical form.
+
+    Lowercases the host, drops `www.`, forces https, strips tracking params and
+    fragments, sorts the query and trims trailing slashes. Returns None only for
+    something that is not a usable http(s) URL at all.
+
+    Deliberately applies NO quality judgement - the backlink tracker has to be
+    able to recognise a link to github.com even though discovery ignores it.
+    """
     if not raw:
         return None
     raw = raw.strip().strip(".,;:'\"<>()[]")
@@ -116,12 +124,12 @@ def normalize_url(raw: str) -> str | None:
             return None
         raw = "https://" + raw
 
-    if is_spam_url(raw):
-        return None
-
     try:
         parts = urlsplit(raw)
     except ValueError:
+        return None
+
+    if parts.scheme.lower() not in ("http", "https"):
         return None
 
     host = (parts.hostname or "").lower().strip(".")
@@ -129,7 +137,6 @@ def normalize_url(raw: str) -> str | None:
         return None
     if host.endswith((".local", ".localhost", ".test", ".invalid", ".onion")):
         return None
-
     if host.startswith("www."):
         host = host[4:]
 
@@ -137,15 +144,7 @@ def normalize_url(raw: str) -> str | None:
     if not ext.suffix or not ext.domain:
         return None  # "node.js", "index.php" and friends are not domains
 
-    rd = f"{ext.domain}.{ext.suffix}".lower()
-    if rd in NOISE_DOMAINS or rd in SHORTENERS or host in NOISE_DOMAINS:
-        return None
-
-    path = parts.path or "/"
-    if path.lower().endswith(BAD_EXTENSIONS):
-        return None
-    # collapse duplicate slashes, drop trailing slash (except root)
-    path = re.sub(r"/{2,}", "/", path)
+    path = re.sub(r"/{2,}", "/", parts.path or "/")
     if len(path) > 1:
         path = path.rstrip("/")
 
@@ -156,16 +155,32 @@ def normalize_url(raw: str) -> str | None:
     ]
     query = urlencode(sorted(query_pairs))
 
-    scheme = "https" if parts.scheme.lower() in ("http", "https") else None
-    if scheme is None:
-        return None
-
     netloc = host
     if parts.port and parts.port not in (80, 443):
         netloc = f"{host}:{parts.port}"
 
-    url = urlunsplit((scheme, netloc, path, query, ""))
-    if len(url) > 2000:
+    url = urlunsplit(("https", netloc, path, query, ""))
+    return url if len(url) <= 2000 else None
+
+
+def normalize_url(raw: str) -> str | None:
+    """Canonical form, or None if this URL should never enter the database.
+
+    canonical_url() plus every quality filter: spam redirects, noise domains,
+    shorteners and asset paths.
+    """
+    if not raw or is_spam_url(raw):
+        return None
+
+    url = canonical_url(raw)
+    if url is None:
+        return None
+
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if root_domain(host) in NOISE_DOMAINS or root_domain(host) in SHORTENERS or host in NOISE_DOMAINS:
+        return None
+    if (parts.path or "/").lower().endswith(BAD_EXTENSIONS):
         return None
     return url
 
