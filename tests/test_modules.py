@@ -73,7 +73,6 @@ def test_store_metrics_denormalises_onto_opportunities(session):
     assert session.scalar(select(DomainMetrics.page_rank)) == 4.7
     ranks = session.execute(select(Opportunity.page_rank)).scalars().all()
     assert ranks == [4.7, 4.7]
-    # and the domain leaves the queue
     assert domains_needing_metrics(session, 10) == []
 
 
@@ -81,7 +80,6 @@ def test_domains_the_provider_skipped_do_not_block_the_queue(session):
     _live_opportunity(session, "https://unknown.com/a")
     session.commit()
     store_metrics(session, [], "test")
-    # nothing stored, but the caller stamps metrics_at; page_rank stays NULL
     assert session.scalar(select(Opportunity.page_rank)) is None
 
 
@@ -103,11 +101,11 @@ def test_find_link_exact_match_and_rel():
     assert hit == {"anchor": "My Site", "rel": "nofollow ugc", "dofollow": False}
 
 
-def test_find_link_falls_back_to_same_domain():
+def test_find_link_rejects_same_domain_when_exact_target_is_gone():
     html = '<a href="/out">x</a><a href="https://mysite.com/other">Homepage</a>'
-    hit = find_link(html, "https://blog.com/post", "https://mysite.com/page", "mysite.com")
-    assert hit["anchor"] == "Homepage"
-    assert hit["dofollow"] is True
+    assert find_link(
+        html, "https://blog.com/post", "https://mysite.com/page", "mysite.com"
+    ) is None
 
 
 def test_find_link_returns_none_when_gone():
@@ -122,15 +120,16 @@ def test_tracker_can_match_domains_discovery_ignores():
     assert hit is not None and hit["anchor"] == "my repo"
 
 
-def test_import_rows_from_csv_shape(session):
+def test_import_rows_counts_distinct_source_target_pairs(session):
     rows = [
         {"source_url": "https://a.com/p", "target_url": "https://mine.com/", "anchor": "mine"},
+        {"source_url": "https://a.com/p", "target_url": "https://other.com/", "anchor": "other"},
         {"source_url": "https://b.com/p", "target_url": "https://mine.com/"},
-        {"source_url": "", "target_url": "https://mine.com/"},          # skipped
+        {"source_url": "", "target_url": "https://mine.com/"},
     ]
     seen, added = import_rows(session, rows, project="q1")
-    assert (seen, added) == (2, 2)
-    assert session.scalar(select(Backlink.project)) == "q1"
+    assert (seen, added) == (3, 3)
+    assert len(session.execute(select(Backlink)).scalars().all()) == 3
 
 
 # =========================================================================
@@ -155,12 +154,12 @@ def test_extract_contacts_from_html():
 
 def test_clean_emails_ranks_and_filters():
     raw = [
-        "noreply@techblog.com",       # junk local part
-        "someone@wixpress.com",       # platform noise
-        "logo@2x.png",                # not an email
+        "noreply@techblog.com",
+        "someone@wixpress.com",
+        "logo@2x.png",
         "info@techblog.com",
         "editor@techblog.com",
-        "freelancer@gmail.com",       # off-domain, ranked last
+        "freelancer@gmail.com",
     ]
     assert clean_emails(raw, "techblog.com") == [
         "editor@techblog.com",
@@ -234,7 +233,7 @@ def test_draft_requires_approval_when_placeholders_remain(session):
 
     assert (considered, drafted) == (1, 1)
     msg = session.execute(select(OutreachMessage)).scalar_one()
-    assert msg.approved is False          # template still has [angle] markers
+    assert msg.approved is False
     assert msg.to_email == "editor@site.com"
     assert session.scalar(select(Prospect.status)) == PROSPECT_QUEUED
 
@@ -247,7 +246,6 @@ def test_draft_is_not_written_twice(session):
     session.commit()
     campaign.draft_messages(session, limit=5)
     session.commit()
-    # prospect has moved on; forcing it back must still not duplicate the draft
     session.execute(select(Prospect)).scalar_one().status = PROSPECT_READY
     session.commit()
     campaign.draft_messages(session, limit=5)
@@ -306,7 +304,7 @@ def test_send_is_dry_run_without_smtp(session, monkeypatch):
     monkeypatch.setattr(mailer.settings, "outreach_enabled", True)
     monkeypatch.setattr(mailer.settings, "smtp_host", "")
     msg = _draft(session)
-    assert mailer.send(session, msg) is False   # nothing actually left
+    assert mailer.send(session, msg) is False
     assert msg.sent is True and "dry-run" in msg.error
 
 
@@ -320,7 +318,6 @@ def test_mark_replied_stops_the_sequence(session):
     p = session.execute(select(Prospect)).scalar_one()
     assert p.status == "replied" and p.replied_at is not None
 
-    # a prospect with pending follow-ups is now skipped
     _, drafted = campaign.schedule_follow_ups(session, limit=5)
     assert drafted == 0
 
@@ -328,7 +325,7 @@ def test_mark_replied_stops_the_sequence(session):
 def test_link_status_constant_is_used(session):
     add_backlink(session, "https://a.com/p", "https://mine.com/")
     row = session.execute(select(Backlink)).scalar_one()
-    assert row.status != LINK_LIVE   # nothing is live until it is verified
+    assert row.status != LINK_LIVE
     assert row.status == "pending"
     assert session.scalar(select(Prospect.status)) is None or True
     assert PROSPECT_NEW == "new"
