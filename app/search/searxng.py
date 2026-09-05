@@ -22,21 +22,29 @@ class SearxngProvider(SearchProvider):
             follow_redirects=True,
         )
 
+    def _engines(self) -> str | None:
+        engines = getattr(settings, "searxng_engines", "bing")
+        values = [e.strip() for e in engines.split(",") if e.strip()]
+        return ",".join(values) or None
+
     def search(self, query: str, pages: int = 1) -> list[SearchResult]:
         out: list[SearchResult] = []
+        engines = self._engines()
         for page in range(1, max(1, pages) + 1):
             params = {
                 "q": query,
                 "format": "json",
                 "pageno": page,
-                "language": "en",
-                "safesearch": 0,
+                "language": getattr(settings, "searxng_language", "en"),
+                "safesearch": getattr(settings, "searxng_safesearch", 0),
             }
+            if engines:
+                params["engines"] = engines
             try:
                 r = self.client.get(f"{self.base_url}/search", params=params)
                 r.raise_for_status()
                 data = r.json()
-            except Exception as exc:  # network, 429, HTML error page...
+            except Exception as exc:
                 log.warning("searxng query failed (%s): %s", query[:60], exc)
                 break
 
