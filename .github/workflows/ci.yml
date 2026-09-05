@@ -18,5 +18,9 @@ jobs:
       - run: pytest -q
         env:
           DATABASE_URL: sqlite:///./data/test.db
+      - name: prepare compose environment
+        run: cp .env.example .env
+      - name: validate docker compose
+        run: docker compose config --quiet
       - name: docker build
         run: docker build -t binglinkfinder:ci .
