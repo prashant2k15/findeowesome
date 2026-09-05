@@ -1,14 +1,15 @@
-"""Harvest public backlink-site lists that people publish on GitHub.
+"""Harvest public backlink-site lists published on GitHub.
 
-Two jobs live here:
-  * `discover_lists`   - GitHub repo search -> register new seed sources
-  * `harvest_sources`  - fetch every enabled seed source and extract URLs
+Discovery intentionally does not assume useful lists live only in README files.
+Many repositories store their data in CSV/TXT/JSON/Markdown files, so a bounded
+repository-tree scan registers likely list files as independent seed sources.
 """
 from __future__ import annotations
 
 import hashlib
 import logging
 import time
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import select
@@ -34,8 +35,14 @@ SEARCH_QUERIES = [
     "awesome directories submit",
 ]
 README_CANDIDATES = ("README.md", "readme.md", "README.MD", "Readme.md")
-
-# A seed list above this share of junk links is disabled instead of imported.
+LIST_EXTENSIONS = {".md", ".txt", ".csv", ".json", ".yaml", ".yml"}
+LIST_NAME_HINTS = (
+    "backlink", "directory", "directories", "submit", "profile", "guest",
+    "bookmark", "seo", "sites", "resources", "list", "web2", "forum",
+)
+MAX_FILES_PER_REPO = 12
+MAX_TREE_ITEMS = 4000
+MAX_FILE_BYTES = 2_000_000
 MAX_SPAM_RATIO = 0.5
 
 
@@ -50,9 +57,72 @@ def _client() -> httpx.Client:
     return httpx.Client(timeout=settings.request_timeout, headers=headers, follow_redirects=True)
 
 
+def _raw_url(full: str, branch: str, path: str) -> str:
+    return f"https://raw.githubusercontent.com/{full}/{quote(branch, safe='')}/{quote(path, safe='/')}"
+
+
+def _likely_list_file(path: str, size: int | None = None) -> bool:
+    lower = path.lower()
+    if lower.rsplit(".", 1)[-1:] and "." + lower.rsplit(".", 1)[-1] not in LIST_EXTENSIONS:
+        return False
+    if size is not None and size > MAX_FILE_BYTES:
+        return False
+    name = lower.rsplit("/", 1)[-1]
+    return name.startswith("readme") or any(hint in lower for hint in LIST_NAME_HINTS)
+
+
+def _candidate_files(client: httpx.Client, full: str, branch: str) -> list[str]:
+    """Return a bounded set of likely public list files from a repository."""
+    candidates = ["README.md"]
+    try:
+        repo = client.get(f"{API}/repos/{full}")
+        if repo.status_code != 200:
+            return candidates
+        default_branch = repo.json().get("default_branch") or branch
+        tree_url = f"{API}/repos/{full}/git/trees/{quote(default_branch, safe='')}?recursive=1"
+        r = client.get(tree_url)
+        if r.status_code != 200:
+            return candidates
+        items = r.json().get("tree") or []
+        if len(items) > MAX_TREE_ITEMS:
+            items = items[:MAX_TREE_ITEMS]
+        ranked: list[tuple[int, str]] = []
+        for item in items:
+            if item.get("type") != "blob":
+                continue
+            path = item.get("path") or ""
+            size = item.get("size")
+            if not _likely_list_file(path, size):
+                continue
+            lower = path.lower()
+            score = 0
+            if lower.startswith("readme"):
+                score += 100
+            score += sum(10 for hint in LIST_NAME_HINTS if hint in lower)
+            if lower.endswith(".csv"):
+                score += 5
+            ranked.append((-score, path))
+        ranked.sort()
+        for _, path in ranked[:MAX_FILES_PER_REPO]:
+            if path not in candidates:
+                candidates.append(path)
+    except Exception as exc:
+        log.debug("could not inspect GitHub tree %s: %s", full, exc)
+    return candidates[:MAX_FILES_PER_REPO]
+
+
+def _register_seed(session, url: str, label: str) -> bool:
+    exists = session.execute(select(SeedSource.id).where(SeedSource.url == url)).scalar_one_or_none()
+    if exists:
+        return False
+    session.add(SeedSource(url=url, label=label, kind_hint=None, enabled=True))
+    return True
+
+
 def discover_lists(session, per_query: int = 10) -> int:
-    """Search GitHub for list repositories and register their READMEs as seeds."""
+    """Search GitHub and register likely README/list data files as seeds."""
     registered = 0
+    inspected_repos: set[str] = set()
     with _client() as client:
         for q in SEARCH_QUERIES:
             try:
@@ -72,31 +142,20 @@ def discover_lists(session, per_query: int = 10) -> int:
             for repo in items:
                 full = repo.get("full_name")
                 branch = repo.get("default_branch") or "main"
-                if not full:
+                if not full or full in inspected_repos:
                     continue
-                raw = f"https://raw.githubusercontent.com/{full}/{branch}/README.md"
-                exists = session.execute(
-                    select(SeedSource.id).where(SeedSource.url == raw)
-                ).scalar_one_or_none()
-                if exists:
-                    continue
-                session.add(
-                    SeedSource(
-                        url=raw,
-                        label=f"github:{full}",
-                        kind_hint=None,
-                        enabled=True,
-                    )
-                )
-                registered += 1
-            time.sleep(2)  # stay well inside the search rate limit
+                inspected_repos.add(full)
+                for path in _candidate_files(client, full, branch):
+                    raw = _raw_url(full, branch, path)
+                    if _register_seed(session, raw, f"github:{full}:{path}"):
+                        registered += 1
+            time.sleep(1)
     session.flush()
-    log.info("discover_lists registered %s new seed sources", registered)
+    log.info("discover_lists registered %s new GitHub list files", registered)
     return registered
 
 
 def harvest_sources(session, limit: int = 40) -> tuple[int, int]:
-    """Fetch seed sources, extract URLs, insert new opportunities."""
     sources = list(
         session.execute(
             select(SeedSource)
@@ -105,8 +164,7 @@ def harvest_sources(session, limit: int = 40) -> tuple[int, int]:
             .limit(limit)
         ).scalars()
     )
-    seen_total = 0
-    new_total = 0
+    seen_total = new_total = 0
 
     with httpx.Client(
         timeout=settings.request_timeout,
@@ -119,10 +177,6 @@ def harvest_sources(session, limit: int = 40) -> tuple[int, int]:
             if text is None:
                 continue
 
-            # Judge the source before anything else: a list that is mostly
-            # open-redirect spam is not a backlink list, it is someone else's
-            # spam log. Runs before the hash check so already-imported sources
-            # are re-judged when the rules get stricter.
             raw_urls = _raw_links(text)
             ratio = spam_ratio(raw_urls)
             if len(raw_urls) >= 50 and ratio > MAX_SPAM_RATIO:
@@ -134,32 +188,24 @@ def harvest_sources(session, limit: int = 40) -> tuple[int, int]:
             digest = hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()
             if digest == src.last_hash:
                 src.error = None
-                continue  # unchanged since last run
+                continue
 
             urls = extract_urls(text)
-
             seen, created = add_opportunities(
-                session,
-                urls,
-                source="github",
-                source_detail=src.label or src.url,
-                kind_hint=src.kind_hint,
+                session, urls, source="github",
+                source_detail=src.label or src.url, kind_hint=src.kind_hint,
             )
-            src.last_hash = digest
-            src.urls_found = seen
-            src.urls_new = created
-            src.error = None
+            src.last_hash, src.urls_found, src.urls_new, src.error = digest, seen, created, None
             seen_total += seen
             new_total += created
             log.info("seed %s -> %s urls, %s new", src.label or src.url, seen, created)
-            time.sleep(0.5)
+            time.sleep(0.3)
 
     session.flush()
     return seen_total, new_total
 
 
 def _fetch_source(client: httpx.Client, src: SeedSource) -> str | None:
-    """Fetch a raw list, retrying the usual README filename variants."""
     candidates = [src.url]
     if src.url.endswith("/README.md"):
         stem = src.url.rsplit("/", 1)[0]
@@ -176,13 +222,10 @@ def _fetch_source(client: httpx.Client, src: SeedSource) -> str | None:
             return r.text
         src.error = f"HTTP {r.status_code}"
 
-    # Nothing worked: disable permanently-missing sources so we stop retrying.
     if (src.error or "").startswith("HTTP 404"):
         src.enabled = False
     return None
 
 
 def _raw_links(text: str) -> list[str]:
-    """Every http(s) link in the text, before any filtering - used to judge a
-    source by what it actually contains rather than by what survived cleaning."""
     return URL_RE.findall(text or "")
