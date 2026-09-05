@@ -52,6 +52,48 @@ BAD_EXTENSIONS = (
 
 IP_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 
+# Real ccTLDs that are far more often file extensions in a README
+# (readme.md, setup.py, build.sh). Only applied to bare, schemeless matches.
+FILE_LIKE_SUFFIXES = {
+    "md", "sh", "py", "rb", "go", "js", "ts", "css", "json", "html", "htm",
+    "xml", "txt", "php", "aspx", "jsp", "yml", "yaml", "ini", "cfg", "log",
+    "bak", "exe", "dll", "so", "cs", "pl", "vb", "im",
+}
+
+# ---------------------------------------------------------------------------
+# Spam patterns. Public "backlink lists" are dominated by open-redirect URLs
+# that other people's spam campaigns pinged for indexing. They carry no link
+# value at all, so they must never enter the database.
+# ---------------------------------------------------------------------------
+SPAM_URL_PATTERNS = (
+    # ANY parameter whose value is itself an absolute URL: ?d=http, ?url=http,
+    # ?buylink=http%3A%2F%2F ... - the signature of an open redirect. The useful
+    # page is the site itself, never someone else's embedded target.
+    re.compile(r"[?&][a-z0-9_.\-]{1,24}=(https?(%3a|:)|%2f%2f|//)", re.I),
+    # expired-domain / trademark parking scripts
+    re.compile(r"/__media__/js/(netsoltrademark|pagead)", re.I),
+    # search-engine redirectors
+    re.compile(r"^https?://(www\.|images\.|maps\.|cse\.|clients\d*\.|toolbarqueries\.)?(google|yandex|baidu)\.[a-z.]{2,12}/(url|imgres|search)", re.I),
+    # ad servers and hit counters
+    re.compile(r"(adclick|adserver|/ads/|banner(id|_click)|pagecountimg|counter\.php|/goto\.php|/click\.php)", re.I),
+    # session/tracking junk and raw scripts
+    re.compile(r"[?&](phpsessid|sid|jsessionid)=", re.I),
+    # translate / cache / proxy mirrors
+    re.compile(r"(translate\.google|webcache\.googleusercontent|cachedview|/cdn-cgi/l/email-protection)", re.I),
+)
+
+
+def is_spam_url(url: str) -> bool:
+    """True for open-redirect / ad-server / parking junk that has no link value."""
+    return any(p.search(url) for p in SPAM_URL_PATTERNS)
+
+
+def spam_ratio(urls: list[str]) -> float:
+    """Share of a list that is junk - used to score a whole seed source."""
+    if not urls:
+        return 0.0
+    return sum(1 for u in urls if is_spam_url(u)) / len(urls)
+
 
 def root_domain(host: str) -> str:
     ext = _EXTRACT(host)
@@ -74,6 +116,9 @@ def normalize_url(raw: str) -> str | None:
             return None
         raw = "https://" + raw
 
+    if is_spam_url(raw):
+        return None
+
     try:
         parts = urlsplit(raw)
     except ValueError:
@@ -88,7 +133,11 @@ def normalize_url(raw: str) -> str | None:
     if host.startswith("www."):
         host = host[4:]
 
-    rd = root_domain(host)
+    ext = _EXTRACT(host)
+    if not ext.suffix or not ext.domain:
+        return None  # "node.js", "index.php" and friends are not domains
+
+    rd = f"{ext.domain}.{ext.suffix}".lower()
     if rd in NOISE_DOMAINS or rd in SHORTENERS or host in NOISE_DOMAINS:
         return None
 
@@ -138,6 +187,8 @@ def extract_urls(text: str, include_bare_domains: bool = True) -> list[str]:
             candidate = m.group(1)
             if candidate.lower().endswith(BAD_EXTENSIONS):
                 continue
+            if candidate.rsplit(".", 1)[-1].lower() in FILE_LIKE_SUFFIXES:
+                continue  # readme.md, setup.py, main.go ... not domains here
             n = normalize_url(candidate)
             if n and n not in seen:
                 seen.add(n)

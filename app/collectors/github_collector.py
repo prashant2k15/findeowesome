@@ -16,7 +16,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.db.models import SeedSource, utcnow
 from app.db.repo import add_opportunities
-from app.processors.url_cleaner import extract_urls
+from app.processors.url_cleaner import URL_RE, extract_urls, spam_ratio
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +34,9 @@ SEARCH_QUERIES = [
     "awesome directories submit",
 ]
 README_CANDIDATES = ("README.md", "readme.md", "README.MD", "Readme.md")
+
+# A seed list above this share of junk links is disabled instead of imported.
+MAX_SPAM_RATIO = 0.5
 
 
 def _client() -> httpx.Client:
@@ -116,12 +119,25 @@ def harvest_sources(session, limit: int = 40) -> tuple[int, int]:
             if text is None:
                 continue
 
+            # Judge the source before anything else: a list that is mostly
+            # open-redirect spam is not a backlink list, it is someone else's
+            # spam log. Runs before the hash check so already-imported sources
+            # are re-judged when the rules get stricter.
+            raw_urls = _raw_links(text)
+            ratio = spam_ratio(raw_urls)
+            if len(raw_urls) >= 50 and ratio > MAX_SPAM_RATIO:
+                src.enabled = False
+                src.error = f"disabled: {ratio:.0%} open-redirect spam"
+                log.warning("seed %s disabled - %.0f%% spam", src.label or src.url, ratio * 100)
+                continue
+
             digest = hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()
             if digest == src.last_hash:
                 src.error = None
                 continue  # unchanged since last run
 
             urls = extract_urls(text)
+
             seen, created = add_opportunities(
                 session,
                 urls,
@@ -164,3 +180,9 @@ def _fetch_source(client: httpx.Client, src: SeedSource) -> str | None:
     if (src.error or "").startswith("HTTP 404"):
         src.enabled = False
     return None
+
+
+def _raw_links(text: str) -> list[str]:
+    """Every http(s) link in the text, before any filtering - used to judge a
+    source by what it actually contains rather than by what survived cleaning."""
+    return URL_RE.findall(text or "")

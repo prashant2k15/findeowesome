@@ -36,6 +36,7 @@ JOB_DEFS = [
     ("check", jobs.job_check, lambda s: IntervalTrigger(hours=s.job_checker_hours, jitter=120)),
     ("export", jobs.job_export, lambda s: IntervalTrigger(hours=6)),
     ("cleanup", jobs.job_cleanup, lambda s: CronTrigger(hour=4, minute=30)),
+    ("purge", jobs.job_purge, lambda s: CronTrigger(hour=5, minute=0)),
     ("report", jobs.job_report, lambda s: CronTrigger(hour=settings.job_report_hour, minute=0)),
 ]
 

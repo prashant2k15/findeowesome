@@ -153,3 +153,83 @@ def test_stats(session):
     assert data["total"] == 2
     assert data["pending"] == 2
     assert data["domains"] == 2
+
+
+# --- spam filtering ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://framesi-usa.net/__media__/js/netsoltrademark.php?d=https%3A%2F%2Fblog.x.id",
+        "https://images.google.com.sg/url?q=http%3A%2F%2Fwww.site.my.id%2F",
+        "https://maps.google.la/url?q=http%3A%2F%2Fsite.my.id%2F",
+        "https://proaudioguide.com/ads/adclick.php?bannerid=179&dest=https%3A%2F%2Fx.io",
+        "https://bk.sanw.net/link.php?url=https%3A%2F%2Fblog.x.id%2F",
+        "https://motoring.vn/PageCountImg.aspx?id=Banner1&url=https%3A%2F%2Fx.io",
+        "https://site.com/out.php?goto=https://target.com",
+    ],
+)
+def test_open_redirect_spam_is_rejected(url):
+    from app.processors.url_cleaner import is_spam_url
+
+    assert is_spam_url(url) is True
+    assert normalize_url(url) is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://alpha-directory.com/submit-site?category=seo",
+        "https://forum.example-site.net/register?ref_id=12",
+        "https://dir.site.com/add-url",
+    ],
+)
+def test_legit_urls_survive_the_spam_filter(url):
+    from app.processors.url_cleaner import is_spam_url
+
+    assert is_spam_url(url) is False
+    assert normalize_url(url) is not None
+
+
+def test_spam_ratio_scores_a_whole_list():
+    from app.processors.url_cleaner import spam_ratio
+
+    junk = [f"https://s{i}.com/__media__/js/netsoltrademark.php?d=https%3A%2F%2Fx.io" for i in range(9)]
+    assert spam_ratio(junk + ["https://real-directory.com/submit"]) == 0.9
+    assert spam_ratio(["https://real-directory.com/submit"]) == 0.0
+    assert spam_ratio([]) == 0.0
+
+
+@pytest.mark.parametrize("token", ["readme.md", "setup.py", "main.go", "styles.css", "index.php"])
+def test_file_names_are_not_treated_as_domains(token):
+    assert extract_urls(f"see {token} for details") == []
+
+
+def test_scheme_qualified_md_domain_still_works():
+    assert normalize_url("https://keep.md/page") == "https://keep.md/page"
+
+
+def test_purge_removes_rows_that_current_filters_reject(session):
+    from app.db.models import Opportunity as O
+
+    session.add_all(
+        [
+            O(url="https://good.com/submit-site", domain="good.com", root_domain="good.com", source="test"),
+            O(
+                url="https://bad.com/__media__/js/netsoltrademark.php?d=https%3A%2F%2Fx.io",
+                domain="bad.com",
+                root_domain="bad.com",
+                source="test",
+            ),
+        ]
+    )
+    session.commit()
+
+    from app.jobs import job_purge_junk
+
+    scanned, removed = job_purge_junk(session)
+    session.commit()
+
+    assert (scanned, removed) == (2, 1)
+    assert session.execute(select(Opportunity.url)).scalars().all() == ["https://good.com/submit-site"]

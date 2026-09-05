@@ -30,6 +30,7 @@ TRIGGERABLE = {
     "check": jobs.job_check,
     "export": jobs.job_export,
     "cleanup": jobs.job_cleanup,
+    "purge": jobs.job_purge,
     "report": jobs.job_report,
 }
 

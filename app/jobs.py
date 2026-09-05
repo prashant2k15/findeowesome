@@ -31,6 +31,7 @@ from app.db.repo import (
 from app.db.session import session_scope
 from app.exporters.csv_exporter import export_all
 from app.notify import telegram
+from app.processors.url_cleaner import is_spam_url, normalize_url
 
 log = logging.getLogger(__name__)
 
@@ -154,3 +155,22 @@ def job_report(session) -> tuple[int, int, str]:
     jobs = recent_jobs(session, 10)
     sent = telegram.send(telegram.daily_report(s, jobs))
     return s["total"], s["new_today"], f"report {'sent' if sent else 'skipped (no token)'}"
+
+
+def job_purge_junk(session) -> tuple[int, int]:
+    """Re-apply the current URL filters to everything already stored.
+
+    Filters get stricter over time (new spam patterns, new noise domains); this
+    retro-cleans rows that were imported before a rule existed.
+    """
+    rows = session.execute(select(Opportunity.id, Opportunity.url)).all()
+    doomed = [i for i, u in rows if is_spam_url(u) or normalize_url(u) is None]
+    for chunk_start in range(0, len(doomed), 500):
+        chunk = doomed[chunk_start : chunk_start + 500]
+        session.execute(delete(Opportunity).where(Opportunity.id.in_(chunk)))
+    return len(rows), len(doomed)
+
+
+def job_purge(session) -> tuple[int, int, str]:
+    scanned, removed = job_purge_junk(session)
+    return scanned, removed, f"{removed} junk URLs removed of {scanned} scanned"

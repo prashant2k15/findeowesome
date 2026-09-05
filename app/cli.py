@@ -96,6 +96,12 @@ def cmd_add(urls: list[str]) -> None:
     console.print(f"[green]{seen} seen, {new} added[/green]")
 
 
+@app.command("purge-junk")
+def cmd_purge_junk() -> None:
+    """Re-apply URL filters to stored rows and delete anything that now fails."""
+    jobs.run_job("purge", jobs.job_purge)
+
+
 @app.command("stats")
 def cmd_stats() -> None:
     """Show database and worker health."""
