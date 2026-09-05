@@ -63,7 +63,7 @@ def _raw_url(full: str, branch: str, path: str) -> str:
 
 def _likely_list_file(path: str, size: int | None = None) -> bool:
     lower = path.lower()
-    if lower.rsplit(".", 1)[-1:] and "." + lower.rsplit(".", 1)[-1] not in LIST_EXTENSIONS:
+    if "." + lower.rsplit(".", 1)[-1] not in LIST_EXTENSIONS:
         return False
     if size is not None and size > MAX_FILE_BYTES:
         return False
@@ -75,15 +75,21 @@ def _candidate_files(client: httpx.Client, full: str, branch: str) -> list[str]:
     """Return a bounded set of likely public list files from a repository."""
     candidates = ["README.md"]
     try:
-        repo = client.get(f"{API}/repos/{full}")
-        if repo.status_code != 200:
+        # Git trees require a tree SHA, not a branch name. Resolve the branch
+        # ref first so repositories whose default branch is not `main` work.
+        ref = client.get(f"{API}/repos/{full}/git/ref/heads/{quote(branch, safe='')}")
+        if ref.status_code != 200:
             return candidates
-        default_branch = repo.json().get("default_branch") or branch
-        tree_url = f"{API}/repos/{full}/git/trees/{quote(default_branch, safe='')}?recursive=1"
+        tree_sha = ((ref.json().get("object") or {}).get("sha"))
+        if not tree_sha:
+            return candidates
+
+        tree_url = f"{API}/repos/{full}/git/trees/{tree_sha}?recursive=1"
         r = client.get(tree_url)
         if r.status_code != 200:
             return candidates
-        items = r.json().get("tree") or []
+        payload = r.json()
+        items = payload.get("tree") or []
         if len(items) > MAX_TREE_ITEMS:
             items = items[:MAX_TREE_ITEMS]
         ranked: list[tuple[int, str]] = []
