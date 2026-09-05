@@ -27,6 +27,12 @@ services:
       - ./config/searxng:/etc/searxng:rw
     expose:
       - "8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   worker:
     build: .
@@ -37,7 +43,7 @@ services:
       db:
         condition: service_healthy
       searxng:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./exports:/app/exports
       - ./imports:/app/imports
@@ -48,8 +54,9 @@ services:
     restart: unless-stopped
     command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --proxy-headers
     env_file: .env
+    # Keep FastAPI private by default; expose it through a reverse proxy in production.
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
