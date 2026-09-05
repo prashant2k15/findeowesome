@@ -12,3 +12,4 @@ exports/*.json
 .ruff_cache/
 .DS_Store
 *.log
+exports/LAST_EXPORT.txt
