@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     outreach_from_name: str = ""
     outreach_from_email: str = ""
     outreach_reply_to: str = ""
-    outreach_min_page_rank: float = 2.0
+    outreach_min_page_rank: float = 0.0
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""

@@ -36,3 +36,10 @@ for _ in $(seq 1 30); do
 done
 
 docker compose ps
+
+echo
+echo "==> preflight: verifying every dependency that can fail silently"
+docker compose exec -T worker python -m app.cli doctor || {
+  echo "!! some checks failed - discovery may not work until they are fixed"
+  exit 1
+}

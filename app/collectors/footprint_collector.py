@@ -12,6 +12,10 @@ from app.search import get_provider
 log = logging.getLogger(__name__)
 
 
+class SearchProviderDown(RuntimeError):
+    """The configured search backend answered nothing at all."""
+
+
 def run_footprints(
     session,
     batch: int = 25,
@@ -32,9 +36,12 @@ def run_footprints(
 
     total = 0
     new_total = 0
+    empty_queries = 0
     try:
         for fp in footprints:
             results = provider.search(fp.query, pages=pages)
+            if not results:
+                empty_queries += 1
             urls = [r.url for r in results]
             seen, created = add_opportunities(
                 session,
@@ -54,5 +61,14 @@ def run_footprints(
             time.sleep(delay + random.uniform(0, delay * 0.5))
     finally:
         provider.close()
+
+    # A backend that silently stops answering is the failure mode that kills
+    # this system quietly: jobs stay green while the database stops growing.
+    # Raise so run_job records a failure and Telegram alerts.
+    if empty_queries == len(footprints) and len(footprints) >= 3:
+        raise SearchProviderDown(
+            f"{provider.name} returned 0 results for all {len(footprints)} queries - "
+            "check SEARCH_PROVIDER / SEARXNG_URL / API key"
+        )
 
     return total, new_total

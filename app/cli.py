@@ -114,6 +114,32 @@ def cmd_purge_junk() -> None:
     jobs.run_job("purge", jobs.job_purge)
 
 
+@app.command("doctor")
+def cmd_doctor(
+    offline: bool = typer.Option(False, "--offline", help="skip live network probes")
+) -> None:
+    """Check every dependency that can fail silently. Run this after deploying."""
+    from app import doctor
+
+    checks = doctor.run_all(probe_network=not offline)
+    t = Table(title="BingLinkFinder preflight")
+    t.add_column("check")
+    t.add_column("status")
+    t.add_column("detail")
+    colour = {doctor.OK: "green", doctor.WARN: "yellow", doctor.FAIL: "red"}
+    for c in checks:
+        t.add_row(c.name, f"[{colour[c.status]}]{c.status.upper()}[/{colour[c.status]}]", c.detail)
+    console.print(t)
+
+    failures = [c for c in checks if c.status == doctor.FAIL]
+    if failures:
+        console.print(
+            f"\n[red]{len(failures)} check(s) failed[/red] - discovery may not be working"
+        )
+        raise typer.Exit(1)
+    console.print("\n[green]all checks passed[/green]")
+
+
 @app.command("stats")
 def cmd_stats() -> None:
     """Show database and worker health."""

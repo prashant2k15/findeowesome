@@ -48,6 +48,8 @@ honours `robots.txt` and per-domain rate limits while crawling.
 | **Authority filtering** | Open PageRank (free) or DataForSEO enrichment, so you sort by whether a domain is worth the effort, not just whether a form exists |
 | **Link monitoring** | Every link you place is re-verified: still there? still dofollow? Telegram alert the moment one disappears |
 | **Outreach with a handbrake** | Finds contacts, drafts personalised mails, then waits for your approval - five independent gates before anything sends |
+| **No silent failure** | A search backend that stops answering fails the job and alerts, instead of leaving green jobs and a database that quietly stopped growing |
+| **One-command preflight** | `blf doctor` live-probes every dependency and tells you exactly which one is broken |
 | **Backups included** | Daily `pg_dump` to `backups/`, 14 kept, one-command restore |
 
 ---
@@ -74,6 +76,28 @@ That brings up five containers:
 | `db` | PostgreSQL (data lives in a named volume, survives rebuilds) |
 | `searxng` | self-hosted metasearch so footprint queries cost nothing and need no API key |
 | `backup` | daily compressed `pg_dump` into `./backups` |
+
+Then verify the install — this is the one command worth remembering:
+
+```bash
+docker compose exec worker python -m app.cli doctor
+```
+
+It probes every dependency that can fail *silently*: database, config, the
+search backend (a live probe query), the GitHub API and its rate limit, the
+metrics key, whether the database is still growing, outreach safety state and
+Telegram. `deploy.sh` runs it automatically after every deploy.
+
+```
+| check          | status | detail                                              |
+| database       | OK     | reachable (db:5432/blf), 4,812 opportunities stored |
+| config         | OK     | 501 footprints, 54 enabled seed sources             |
+| search backend | OK     | searxng: 18 results for a probe query               |
+| github api     | OK     | authenticated: 30/30 search requests left           |
+| metrics        | WARN   | no key set - authority stays empty (optional)       |
+| discovery      | OK     | 4,812 stored, +847 in 24h, +4,812 in 7d             |
+| outreach       | OK     | disabled - drafts only, nothing sends               |
+```
 
 Then open `http://<server-ip>:8000` (add `?key=…` if you set `DASHBOARD_KEY`).
 
@@ -176,6 +200,7 @@ job to run it now.
 **CLI**
 
 ```bash
+python -m app.cli doctor                      # preflight: what is actually working?
 python -m app.cli stats                       # database + worker health
 python -m app.cli list --kind directory       # top opportunities
 python -m app.cli check --limit 200           # one checker batch now
@@ -321,6 +346,32 @@ Send from a mailbox you are willing to have flagged as spam, keep the daily
 limit low, and personalise the bracketed sections. Automated mail that reads as
 automated gets your domain blacklisted — the approval gate exists so that the
 volume knob is not the only thing standing between you and that.
+
+---
+
+## What is verified, and what needs your server
+
+Everything in this repo is exercised by the test suite (79 tests) and most of
+it has been run against live sites. One piece cannot be verified from a laptop:
+
+| | status |
+|---|---|
+| URL cleaning, classification, de-duplication, per-domain caps | tested |
+| GitHub discovery + harvest | **run live**: 75 seed repos found, 4,522 URLs stored in one pass |
+| Live checking and classification | **run live**: real sites classified, submit/register pages extracted |
+| Backlink tracking | **run live**: a real link detected as live/dofollow with its anchor; a fabricated one reported missing |
+| Contact discovery | **run live**: found a real editorial address, obfuscated formats decoded |
+| Outreach drafting, approval and send gates | tested end to end in dry-run |
+| Footprint discovery through a **real** search engine | **tested against a stubbed SERP only** |
+
+That last row is honest: SearXNG needs Docker, and every public instance
+refuses programmatic JSON (HTML, 429 or a bot challenge), so the live-SERP path
+can only be proven on the server that runs it. The whole pipeline around it —
+rotation, parsing, filtering, insertion, restart-resume, and the fail-loud
+behaviour when a backend dies — is covered in
+[`tests/test_discovery_e2e.py`](tests/test_discovery_e2e.py) with the remote
+engine stubbed. After deploying, `blf doctor` answers the remaining question in
+one line: **`search backend  OK  searxng: 18 results for a probe query`**.
 
 ---
 

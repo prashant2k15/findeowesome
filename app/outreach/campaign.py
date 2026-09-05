@@ -61,6 +61,21 @@ def build_prospects(
     """Promote the best verified opportunities into the outreach pipeline."""
     threshold = settings.outreach_min_page_rank if min_page_rank is None else min_page_rank
 
+    # An authority floor is meaningless before any metrics have been fetched,
+    # and applying it anyway would silently build zero prospects. Metrics are an
+    # optional enrichment, so they must never be able to stall the pipeline.
+    if threshold > 0:
+        have_metrics = session.execute(
+            select(Opportunity.id).where(Opportunity.page_rank.isnot(None)).limit(1)
+        ).first()
+        if not have_metrics:
+            log.warning(
+                "outreach_min_page_rank=%s ignored: no domain metrics fetched yet "
+                "(set METRICS_PROVIDER + key, or leave the floor at 0)",
+                threshold,
+            )
+            threshold = 0.0
+
     existing = {d for (d,) in session.execute(select(Prospect.root_domain)).all()}
 
     stmt = (
