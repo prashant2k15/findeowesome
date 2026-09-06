@@ -1,0 +1,9 @@
+# Dry-run inventory assignment only. No FTP/deployment credentials here.
+links_per_website: 10
+websites_per_batch: 10
+rotation_mode: sequential
+
+# Expected inputs can be CSV files with a "domain" column.
+source_sites_file: imports/source_sites.csv
+target_inventory_file: imports/target_inventory.csv
+output_file: exports/network_assignments.csv
