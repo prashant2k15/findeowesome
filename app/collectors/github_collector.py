@@ -58,7 +58,8 @@ def _client() -> httpx.Client:
 
 
 def _raw_url(full: str, branch: str, path: str) -> str:
-    return f"https://raw.githubusercontent.com/{full}/{quote(branch, safe='')}/{quote(path, safe='/')}"
+    """Build a raw.githubusercontent.com URL without mangling branch names."""
+    return f"https://raw.githubusercontent.com/{full}/{quote(branch, safe='/')}/{quote(path, safe='/')}"
 
 
 def _likely_list_file(path: str, size: int | None = None) -> bool:
@@ -90,6 +91,8 @@ def _candidate_files(client: httpx.Client, full: str, branch: str) -> list[str]:
             return candidates
         payload = r.json()
         items = payload.get("tree") or []
+        if payload.get("truncated"):
+            log.info("GitHub tree truncated for %s; using first %s items", full, MAX_TREE_ITEMS)
         if len(items) > MAX_TREE_ITEMS:
             items = items[:MAX_TREE_ITEMS]
         ranked: list[tuple[int, str]] = []
